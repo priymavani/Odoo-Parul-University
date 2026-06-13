@@ -157,3 +157,50 @@ exports.verifyRazorpayPayment = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+const whatsappService = require('../services/whatsapp.service');
+
+exports.sendWhatsAppReceipt = async (req, res) => {
+  try {
+    const { orderId, phone } = req.body;
+
+    if (!whatsappService.isReady()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'WHATSAPP_NOT_CONNECTED',
+        message: 'WhatsApp server client is not authenticated. Please scan the QR code in the terminal.' 
+      });
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, table: true, payments: true }
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: "Order not found" });
+    }
+
+    const subtotal = order.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+    const tax = Number(order.taxAmount) || 0;
+    const discount = Number(order.discountAmount) || 0;
+    const total = Number(order.totalAmount);
+    const tableName = order.table ? order.table.name : 'Takeaway';
+    const paymentMethodDisplay = order.payments && order.payments.length > 0 
+      ? order.payments.map(p => p.method).join(', ') 
+      : 'PAID';
+
+    const itemsText = order.items.map(item => 
+      `- ${item.quantity}x ${item.productName}${item.variantName ? ` (${item.variantName})` : ''} - ₹${(Number(item.price) * item.quantity).toFixed(2)}`
+    ).join('\n');
+
+    const message = `*Odoo Cafe Receipt*\n--------------------------\nOrder: ${order.orderNumber}\nDate: ${new Date(order.updatedAt || order.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\nTable: ${tableName}\nCustomer: ${order.customerName || 'Guest'}\n--------------------------\nItems:\n${itemsText}\n--------------------------\nSubtotal: ₹${subtotal.toFixed(2)}\n${discount > 0 ? `Discount: -₹${discount.toFixed(2)}\n` : ''}${tax > 0 ? `Tax: ₹${tax.toFixed(2)}\n` : ''}Total Amount: ₹${total.toFixed(2)}\n--------------------------\nPayment Method: ${paymentMethodDisplay}\nThank you for dining with us!`;
+
+    await whatsappService.sendReceipt(phone, message);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("WhatsApp endpoint error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+

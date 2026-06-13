@@ -136,6 +136,44 @@ export default function POSPaymentPage() {
 
       const rzOrder = await rzOrderRes.json();
 
+      // Check for mock Razorpay credentials or fallback order
+      if (rzOrder.id.startsWith('order_mock_') || rzOrder.key === 'rzp_test_placeholder' || rzOrder.key.includes('mockkey')) {
+        const simulateSuccess = confirm("Razorpay Simulator: Real Razorpay keys are not configured in your backend .env.\n\nWould you like to simulate a successful payment validation for this order?");
+        if (simulateSuccess) {
+          try {
+            const verifyRes = await fetch(`${API_URL}/payments/razorpay/verify`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                orderId: order.id,
+                razorpay_order_id: rzOrder.id,
+                razorpay_payment_id: `pay_mock_${Math.random().toString(36).substr(2, 9)}`,
+                razorpay_signature: "mock_signature"
+              })
+            });
+
+            if (verifyRes.ok) {
+              clearCart();
+              localStorage.removeItem('payingOrderId');
+              setProcessing(false);
+              setOrderComplete(true);
+            } else {
+              const verifyErr = await verifyRes.json();
+              throw new Error(verifyErr.error || "Payment verification failed");
+            }
+          } catch (verifyError) {
+            alert(verifyError.message);
+            setProcessing(false);
+          }
+        } else {
+          setProcessing(false);
+        }
+        return;
+      }
+
       // 2. Configure checkout
       const options = {
         key: rzOrder.key,
@@ -200,9 +238,47 @@ export default function POSPaymentPage() {
       setProcessing(false);
     }
   };
-
-  const handleShareWhatsApp = () => {
+  const handleShareWhatsApp = async () => {
     if (!order) return;
+    
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api';
+    const token = localStorage.getItem('token');
+    
+    try {
+      setProcessing(true);
+      const res = await fetch(`${API_URL}/payments/whatsapp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          orderId: order.id,
+          phone: whatsappNumber
+        })
+      });
+
+      setProcessing(false);
+
+      if (res.ok) {
+        alert("Receipt sent successfully via automated local WhatsApp!");
+        return;
+      }
+
+      const errData = await res.json();
+      console.warn("Automated WhatsApp failed:", errData);
+      
+      // Fallback redirect to WhatsApp Web
+      alert("Local automated WhatsApp is not connected. Redirecting to WhatsApp Web instead...");
+      triggerWhatsappWebFallback();
+    } catch (err) {
+      console.error("WhatsApp API error:", err);
+      setProcessing(false);
+      triggerWhatsappWebFallback();
+    }
+  };
+
+  const triggerWhatsappWebFallback = () => {
     const subtotal = order.items.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
     const tax = Number(order.taxAmount) || 0;
     const discount = Number(order.discountAmount) || 0;
@@ -219,7 +295,6 @@ export default function POSPaymentPage() {
     const cleanNum = whatsappNumber.replace(/\D/g, '');
     const phone = cleanNum.length === 10 ? '91' + cleanNum : cleanNum;
 
-    // Use web.whatsapp.com URL locally
     const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };

@@ -12,6 +12,10 @@ const server = app.listen(PORT, () => {
 
 initSocket(server);
 
+// Initialize WhatsApp Web Client
+require('./src/services/whatsapp.service').initialize();
+
+
 // ─── Graceful Shutdown ──────────────────────────────────────
 const shutdown = async (signal) => {
   console.log(`\n⏳ ${signal} received. Shutting down gracefully...`);

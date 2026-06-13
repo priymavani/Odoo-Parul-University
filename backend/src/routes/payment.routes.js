@@ -7,5 +7,7 @@ router.use(authenticateToken);
 
 router.post('/razorpay/order', paymentController.createRazorpayOrder);
 router.post('/razorpay/verify', paymentController.verifyRazorpayPayment);
+router.post('/whatsapp', paymentController.sendWhatsAppReceipt);
+
 
 module.exports = router;

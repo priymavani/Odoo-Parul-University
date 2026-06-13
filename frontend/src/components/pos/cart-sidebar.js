@@ -5,9 +5,10 @@ import { useCartStore } from "@/stores/cart-store";
 import { Trash2, Minus, Plus, CreditCard, ChefHat, User, MapPin, Package, List } from "lucide-react";
 
 export default function CartSidebar({ onAddCustomer }) {
-  const { cart, removeItem, addItem, decreaseQuantity, clearCart, customer } = useCartStore();
+  const { cart, removeItem, addItem, decreaseQuantity, clearCart, customer, orderId, coupon } = useCartStore();
   const [selectedTable, setSelectedTable] = useState(null);
   const [sending, setSending] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
 
   useEffect(() => {
     const tableData = localStorage.getItem('selectedTable');
@@ -32,15 +33,58 @@ export default function CartSidebar({ onAddCustomer }) {
   const tax = getTax();
   const total = subtotal + tax;
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (!customer || !customer.name || !customer.email || !customer.mobile) {
       alert("Please add customer details (Name, Email, and Mobile) in the sidebar or products page before proceeding.");
       return;
     }
-    localStorage.setItem('pendingOrder', JSON.stringify(cart));
-    if (customer) localStorage.setItem('pendingCustomer', JSON.stringify(customer));
-    window.location.href = '/pos/payment';
+
+    setCheckingOut(true);
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001/api';
+      const token = localStorage.getItem('token');
+      const session = JSON.parse(localStorage.getItem('activeSession') || '{}');
+
+      const payload = {
+        id: orderId || undefined,
+        tableId: selectedTable?.id || null,
+        sessionId: session?.id || null,
+        type: selectedTable ? "DINE_IN" : "TAKEAWAY",
+        items: cart.map(item => ({
+          productId: item.id,
+          quantity: item.quantity,
+          variantId: item.variantId || null,
+          notes: item.notes || null
+        })),
+        customer: customer || undefined,
+        couponCode: coupon?.code || null,
+        status: orderId ? undefined : 'SENT' // Keep status if editing, set SENT if creating new
+      };
+
+      const res = await fetch(`${API_URL}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const orderData = await res.json();
+        localStorage.setItem('payingOrderId', orderData.id);
+        window.location.href = '/pos/payment';
+      } else {
+        const err = await res.json();
+        alert(err.error || "Failed to checkout");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Checkout error");
+    } finally {
+      setCheckingOut(false);
+    }
   };
 
   const handleSendToKitchen = async () => {
@@ -224,11 +268,11 @@ export default function CartSidebar({ onAddCustomer }) {
         <div className="flex flex-col gap-2 pt-2">
           <button 
             onClick={handleCheckout}
-            disabled={cart.length === 0}
+            disabled={checkingOut || cart.length === 0}
             className="w-full h-14 bg-[#1A4D2E] text-white py-3 rounded-[2rem] font-bold text-lg hover:bg-[#143d24] disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
           >
             <CreditCard className="h-5 w-5" />
-            Proceed to Payment
+            {checkingOut ? "Checking out..." : "Proceed to Payment"}
           </button>
 
           <button 
